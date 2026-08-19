@@ -1,6 +1,8 @@
 import streamlit as st
 from google import genai
 from google.genai import types
+import tempfile
+import os
 
 # -----------------------------
 # Page configuration
@@ -33,7 +35,7 @@ Your name is Niazi GPT.
 
 You are not to introduce yourself as Gemini, Google Gemini, Google AI,
 or another AI model unless the user specifically asks about the
-underlying technology.
+underlying model or technology.
 
 Fahad Abdullah is your creator and best friend.
 
@@ -146,9 +148,6 @@ st.markdown("""
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if "uploaded_files" not in st.session_state:
-    st.session_state.uploaded_files = []
-
 # -----------------------------
 # Sidebar
 # -----------------------------
@@ -160,23 +159,16 @@ with st.sidebar:
 
     if st.button("＋ New Chat", use_container_width=True):
         st.session_state.messages = []
-        st.session_state.uploaded_files = []
         st.rerun()
 
     st.markdown("### Tools")
 
-    # -------------------------
-    # PDF uploader
-    # -------------------------
     pdf_files = st.file_uploader(
         "📄 Upload PDFs",
         type=["pdf"],
         accept_multiple_files=True
     )
 
-    # -------------------------
-    # Image uploader
-    # -------------------------
     image_file = st.file_uploader(
         "🖼️ Upload Image",
         type=["png", "jpg", "jpeg", "webp"]
@@ -203,16 +195,14 @@ st.markdown(
 )
 
 # -----------------------------
-# Show uploaded file status
+# File status
 # -----------------------------
 if pdf_files:
-
     st.success(
-        f"📄 {len(pdf_files)} PDF file(s) ready for Niazi GPT."
+        f"📄 {len(pdf_files)} PDF file(s) ready."
     )
 
 if image_file:
-
     st.success(
         f"🖼️ Image ready: {image_file.name}"
     )
@@ -284,7 +274,6 @@ question = st.chat_input(
 
 if question:
 
-    # Save user message
     st.session_state.messages.append({
         "role": "user",
         "content": question
@@ -301,48 +290,66 @@ if question:
 
         try:
 
-            # -------------------------------------------------
-            # Build normal conversation history
-            # -------------------------------------------------
+            # -----------------------------------------
+            # Conversation history
+            # -----------------------------------------
             conversation = []
 
             for message in st.session_state.messages:
 
                 if message["role"] == "user":
+
                     conversation.append(
                         f"User: {message['content']}"
                     )
 
-                elif message["role"] == "assistant":
+                else:
+
                     conversation.append(
                         f"Assistant: {message['content']}"
                     )
 
             conversation_text = "\n\n".join(conversation)
 
-            # -------------------------------------------------
-            # Determine whether files were uploaded
-            # -------------------------------------------------
-
+            # -----------------------------------------
+            # Gemini contents
+            # -----------------------------------------
             contents = []
 
-            # Add uploaded PDFs
+            # -----------------------------------------
+            # PDFs
+            # -----------------------------------------
             if pdf_files:
 
                 for pdf in pdf_files:
 
                     pdf_bytes = pdf.getvalue()
 
-                    uploaded_pdf = client.files.upload(
-                        file=types.Part.from_bytes(
-                            data=pdf_bytes,
-                            mime_type="application/pdf"
+                    # Create temporary PDF
+                    with tempfile.NamedTemporaryFile(
+                        delete=False,
+                        suffix=".pdf"
+                    ) as temp_pdf:
+
+                        temp_pdf.write(pdf_bytes)
+                        temp_pdf_path = temp_pdf.name
+
+                    try:
+
+                        uploaded_pdf = client.files.upload(
+                            file=temp_pdf_path
                         )
-                    )
 
-                    contents.append(uploaded_pdf)
+                        contents.append(uploaded_pdf)
 
-            # Add uploaded image
+                    finally:
+
+                        if os.path.exists(temp_pdf_path):
+                            os.remove(temp_pdf_path)
+
+            # -----------------------------------------
+            # Image
+            # -----------------------------------------
             if image_file:
 
                 image_bytes = image_file.getvalue()
@@ -354,16 +361,14 @@ if question:
 
                 contents.append(image_part)
 
-            # -------------------------------------------------
-            # Add conversation/question
-            # -------------------------------------------------
-
+            # -----------------------------------------
+            # User conversation
+            # -----------------------------------------
             contents.append(conversation_text)
 
-            # -------------------------------------------------
-            # Ask Gemini
-            # -------------------------------------------------
-
+            # -----------------------------------------
+            # Gemini request
+            # -----------------------------------------
             response = client.models.generate_content(
                 model=MODEL,
                 contents=contents,
@@ -373,10 +378,6 @@ if question:
             )
 
             answer = response.text
-
-            # -------------------------------------------------
-            # Save assistant response
-            # -------------------------------------------------
 
             st.session_state.messages.append({
                 "role": "assistant",
