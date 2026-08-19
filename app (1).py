@@ -1,5 +1,6 @@
 import streamlit as st
 from google import genai
+from google.genai import types
 
 # -----------------------------
 # Page configuration
@@ -30,9 +31,9 @@ You are Niazi GPT, a personal AI assistant created by Fahad Abdullah.
 
 Your name is Niazi GPT.
 
-You are NOT to introduce yourself as Gemini, Google Gemini, Google AI,
+You are not to introduce yourself as Gemini, Google Gemini, Google AI,
 or another AI model unless the user specifically asks about the
-underlying model or technology.
+underlying technology.
 
 Fahad Abdullah is your creator and best friend.
 
@@ -47,18 +48,18 @@ You help with:
 - Writing and brainstorming
 - Problem solving
 - Everyday conversations
+- Understanding uploaded PDFs
+- Understanding uploaded images
 
-When someone asks "Who are you?", explain that you are Niazi GPT,
+When someone asks who you are, explain that you are Niazi GPT,
 a personal AI assistant created by Fahad Abdullah.
 
 Do not unnecessarily mention Google or Gemini.
 
-Do not claim to have abilities that you do not actually have.
+Be honest about what you can and cannot do.
 
-Be honest when you don't know something.
-
-Keep responses clear and useful, but match the user's preferred level
-of detail and conversational style.
+When a user uploads a PDF or image, actually analyze the uploaded
+file when answering questions about it.
 """
 
 # -----------------------------
@@ -145,6 +146,9 @@ st.markdown("""
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "uploaded_files" not in st.session_state:
+    st.session_state.uploaded_files = []
+
 # -----------------------------
 # Sidebar
 # -----------------------------
@@ -156,17 +160,24 @@ with st.sidebar:
 
     if st.button("＋ New Chat", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.uploaded_files = []
         st.rerun()
 
     st.markdown("### Tools")
 
-    st.file_uploader(
+    # -------------------------
+    # PDF uploader
+    # -------------------------
+    pdf_files = st.file_uploader(
         "📄 Upload PDFs",
         type=["pdf"],
         accept_multiple_files=True
     )
 
-    st.file_uploader(
+    # -------------------------
+    # Image uploader
+    # -------------------------
+    image_file = st.file_uploader(
         "🖼️ Upload Image",
         type=["png", "jpg", "jpeg", "webp"]
     )
@@ -190,6 +201,21 @@ st.markdown(
     '</div>',
     unsafe_allow_html=True
 )
+
+# -----------------------------
+# Show uploaded file status
+# -----------------------------
+if pdf_files:
+
+    st.success(
+        f"📄 {len(pdf_files)} PDF file(s) ready for Niazi GPT."
+    )
+
+if image_file:
+
+    st.success(
+        f"🖼️ Image ready: {image_file.name}"
+    )
 
 # -----------------------------
 # Welcome screen
@@ -258,13 +284,12 @@ question = st.chat_input(
 
 if question:
 
-    # Add user's message
+    # Save user message
     st.session_state.messages.append({
         "role": "user",
         "content": question
     })
 
-    # Check Gemini connection
     if client is None:
 
         st.session_state.messages.append({
@@ -276,7 +301,9 @@ if question:
 
         try:
 
-            # Build conversation history
+            # -------------------------------------------------
+            # Build normal conversation history
+            # -------------------------------------------------
             conversation = []
 
             for message in st.session_state.messages:
@@ -293,18 +320,64 @@ if question:
 
             conversation_text = "\n\n".join(conversation)
 
+            # -------------------------------------------------
+            # Determine whether files were uploaded
+            # -------------------------------------------------
+
+            contents = []
+
+            # Add uploaded PDFs
+            if pdf_files:
+
+                for pdf in pdf_files:
+
+                    pdf_bytes = pdf.getvalue()
+
+                    uploaded_pdf = client.files.upload(
+                        file=types.Part.from_bytes(
+                            data=pdf_bytes,
+                            mime_type="application/pdf"
+                        )
+                    )
+
+                    contents.append(uploaded_pdf)
+
+            # Add uploaded image
+            if image_file:
+
+                image_bytes = image_file.getvalue()
+
+                image_part = types.Part.from_bytes(
+                    data=image_bytes,
+                    mime_type=image_file.type
+                )
+
+                contents.append(image_part)
+
+            # -------------------------------------------------
+            # Add conversation/question
+            # -------------------------------------------------
+
+            contents.append(conversation_text)
+
+            # -------------------------------------------------
             # Ask Gemini
+            # -------------------------------------------------
+
             response = client.models.generate_content(
                 model=MODEL,
-                contents=conversation_text,
-                config={
-                    "system_instruction": SYSTEM_INSTRUCTION
-                }
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION
+                )
             )
 
             answer = response.text
 
-            # Save response
+            # -------------------------------------------------
+            # Save assistant response
+            # -------------------------------------------------
+
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": answer
