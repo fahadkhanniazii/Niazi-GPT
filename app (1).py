@@ -20,7 +20,7 @@ try:
 except Exception:
     client = None
 
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.6-flash"
 
 # -----------------------------
 # Custom styling
