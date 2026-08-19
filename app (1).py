@@ -3,6 +3,7 @@ from google import genai
 from google.genai import types
 import tempfile
 import os
+import time
 
 # -----------------------------
 # Page configuration
@@ -116,8 +117,11 @@ st.markdown("""
         border: 1px solid #252b36;
     }
 
-    section[data-testid="stSidebar"] {
-        background: #11151d;
+    .thinking {
+        color: #9ca3af;
+        font-size: 15px;
+        padding: 10px 5px;
+        margin: 8px 0;
     }
 
     @media (max-width: 768px) {
@@ -274,121 +278,180 @@ question = st.chat_input(
 
 if question:
 
+    # Save user message
     st.session_state.messages.append({
         "role": "user",
         "content": question
     })
 
+    # -------------------------
+    # Thinking animation
+    # -------------------------
+    thinking_placeholder = st.empty()
+
     if client is None:
+
+        thinking_placeholder.empty()
 
         st.session_state.messages.append({
             "role": "assistant",
             "content": "⚠️ Gemini API key is not configured correctly."
         })
 
-    else:
+        st.rerun()
 
-        try:
+    try:
 
-            # -----------------------------------------
-            # Conversation history
-            # -----------------------------------------
-            conversation = []
+        # Animate dots while preparing the request
+        thinking_frames = [
+            "● ○ ○",
+            "○ ● ○",
+            "○ ○ ●"
+        ]
 
-            for message in st.session_state.messages:
+        # -------------------------
+        # Conversation history
+        # -------------------------
+        conversation = []
 
-                if message["role"] == "user":
+        for message in st.session_state.messages:
 
-                    conversation.append(
-                        f"User: {message['content']}"
-                    )
+            if message["role"] == "user":
 
-                else:
-
-                    conversation.append(
-                        f"Assistant: {message['content']}"
-                    )
-
-            conversation_text = "\n\n".join(conversation)
-
-            # -----------------------------------------
-            # Gemini contents
-            # -----------------------------------------
-            contents = []
-
-            # -----------------------------------------
-            # PDFs
-            # -----------------------------------------
-            if pdf_files:
-
-                for pdf in pdf_files:
-
-                    pdf_bytes = pdf.getvalue()
-
-                    # Create temporary PDF
-                    with tempfile.NamedTemporaryFile(
-                        delete=False,
-                        suffix=".pdf"
-                    ) as temp_pdf:
-
-                        temp_pdf.write(pdf_bytes)
-                        temp_pdf_path = temp_pdf.name
-
-                    try:
-
-                        uploaded_pdf = client.files.upload(
-                            file=temp_pdf_path
-                        )
-
-                        contents.append(uploaded_pdf)
-
-                    finally:
-
-                        if os.path.exists(temp_pdf_path):
-                            os.remove(temp_pdf_path)
-
-            # -----------------------------------------
-            # Image
-            # -----------------------------------------
-            if image_file:
-
-                image_bytes = image_file.getvalue()
-
-                image_part = types.Part.from_bytes(
-                    data=image_bytes,
-                    mime_type=image_file.type
+                conversation.append(
+                    f"User: {message['content']}"
                 )
 
-                contents.append(image_part)
+            else:
 
-            # -----------------------------------------
-            # User conversation
-            # -----------------------------------------
-            contents.append(conversation_text)
-
-            # -----------------------------------------
-            # Gemini request
-            # -----------------------------------------
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION
+                conversation.append(
+                    f"Assistant: {message['content']}"
                 )
+
+        conversation_text = "\n\n".join(conversation)
+
+        # -------------------------
+        # Gemini contents
+        # -------------------------
+        contents = []
+
+        # -------------------------
+        # PDFs
+        # -------------------------
+        if pdf_files:
+
+            for pdf in pdf_files:
+
+                pdf_bytes = pdf.getvalue()
+
+                with tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=".pdf"
+                ) as temp_pdf:
+
+                    temp_pdf.write(pdf_bytes)
+                    temp_pdf_path = temp_pdf.name
+
+                try:
+
+                    uploaded_pdf = client.files.upload(
+                        file=temp_pdf_path
+                    )
+
+                    contents.append(uploaded_pdf)
+
+                finally:
+
+                    if os.path.exists(temp_pdf_path):
+                        os.remove(temp_pdf_path)
+
+        # -------------------------
+        # Image
+        # -------------------------
+        if image_file:
+
+            image_bytes = image_file.getvalue()
+
+            image_part = types.Part.from_bytes(
+                data=image_bytes,
+                mime_type=image_file.type
             )
 
-            answer = response.text
+            contents.append(image_part)
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": answer
-            })
+        # -------------------------
+        # Conversation
+        # -------------------------
+        contents.append(conversation_text)
 
-        except Exception as e:
+        # -------------------------
+        # Show thinking animation
+        # -------------------------
+        for frame in thinking_frames:
 
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": f"⚠️ Gemini error: {str(e)}"
-            })
+            thinking_placeholder.markdown(
+                f'<div class="thinking">'
+                f'😈 Niazi GPT is thinking {frame}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            time.sleep(0.25)
+
+        # -------------------------
+        # Generate response
+        # -------------------------
+        response = client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION
+            )
+        )
+
+        answer = response.text
+
+        thinking_placeholder.empty()
+
+        # -------------------------
+        # Word-by-word response
+        # -------------------------
+        response_placeholder = st.empty()
+
+        words = answer.split(" ")
+
+        displayed_text = ""
+
+        for word in words:
+
+            displayed_text += word + " "
+
+            response_placeholder.markdown(
+                f'<div class="assistant-message">'
+                f'😈 {displayed_text}'
+                f'</div>',
+                unsafe_allow_html=True
+            )
+
+            time.sleep(0.025)
+
+        # -------------------------
+        # Save complete response
+        # -------------------------
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer
+        })
+
+        response_placeholder.empty()
+
+    except Exception as e:
+
+        thinking_placeholder.empty()
+
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"⚠️ Gemini error: {str(e)}"
+        })
 
     st.rerun()
